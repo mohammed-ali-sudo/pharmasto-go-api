@@ -15,7 +15,7 @@ func CORS(next http.Handler) http.Handler {
 			return
 		}
 
-		// استدعاء الـ handler التالي
+		// استدعاء الـ handler التالaي
 		next.ServeHTTP(w, r)
 	})
 }
