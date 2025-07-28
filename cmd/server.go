@@ -25,6 +25,8 @@ func main() {
 
 	// 3. Route using the simplified handler
 	router.HandleFunc("/teacher", handlers.TeacherCreateHandler(database)).Methods("POST")
+	router.HandleFunc("/teacher/all", handlers.TeachersGetHandler(database)).Methods("POST")
+	router.HandleFunc("/teacher/{id}", handlers.TeacherGetHandler(database)).Methods("GET")
 
 	// 4. Start server
 	fmt.Println("🚀 Server listening on :8001")
