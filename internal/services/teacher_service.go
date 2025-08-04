@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"goapi/models"
+	"strings"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/lib/pq"
@@ -81,4 +82,217 @@ func GetTeachers(db *sql.DB, ids []int) ([]models.Teacher, error) {
 		teachers = append(teachers, t)
 	}
 	return teachers, nil
+}
+
+
+//put/teachers/id
+func UpdateTeacherService(db *sql.DB, t models.Teacher, id int) (models.Teacher, error) {
+    // will hold the updated row
+    var teacher models.Teacher
+
+    // single query to update + return the new values
+    const qry = `
+        UPDATE teachers
+           SET first_name = $1,
+               last_name  = $2,
+               email      = $3,
+               class      = $4,
+               subject    = $5
+         WHERE id = $6
+     RETURNING id, first_name, last_name, email, class, subject
+    `
+
+    // run it and scan into teacher
+    err := db.QueryRow(
+        qry,
+        t.FirstName,
+        t.LastName,
+        t.Email,
+        t.Class,
+        t.Subject,
+        id,
+    ).Scan(
+        &teacher.ID,
+        &teacher.FirstName,
+        &teacher.LastName,
+        &teacher.Email,
+        &teacher.Class,
+        &teacher.Subject,
+    )
+    if err != nil {
+        return models.Teacher{}, fmt.Errorf("update failed: %w", err)
+    }
+
+    // success! return the updated struct
+    return teacher, nil
+}
+
+func PatchTeacherService(db *sql.DB, t models.Teacher, id int) (models.Teacher, error) {
+    const qry = `
+        UPDATE teachers
+           SET first_name = COALESCE(NULLIF($1, ''), first_name),
+               last_name  = COALESCE(NULLIF($2, ''), last_name),
+               email      = COALESCE(NULLIF($3, ''), email),
+               class      = COALESCE(NULLIF($4, ''), class),
+               subject    = COALESCE(NULLIF($5, ''), subject)
+         WHERE id = $6
+     RETURNING id, first_name, last_name, email, class, subject`
+
+    var teacher models.Teacher
+    err := db.QueryRow(
+        qry,
+        t.FirstName,
+        t.LastName,
+        t.Email,
+        t.Class,
+        t.Subject,
+        id,
+    ).Scan(
+        &teacher.ID,
+        &teacher.FirstName,
+        &teacher.LastName,
+        &teacher.Email,
+        &teacher.Class,
+        &teacher.Subject,
+    )
+    if err != nil {
+        return models.Teacher{}, fmt.Errorf("patch failed: %w", err)
+    }
+    return teacher, nil
+}
+
+func FilterServices(db *sql.DB, filters map[string]string) ([]models.Teacher, error) {
+	// 1. Base query
+	query := "SELECT id, first_name, last_name, email, class, subject FROM teachers"
+
+	// 2. Build WHERE clauses with $1, $2, …
+	var where []string
+	var args []interface{}
+	idx := 1
+
+	for _, key := range []string{"first_name", "last_name", "email", "class", "subject"} {
+		if val, ok := filters[key]; ok && val != "" {
+			where = append(where, fmt.Sprintf("%s = $%d", key, idx))
+			args = append(args, val)
+			idx++
+		}
+	}
+
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+
+	// 3. Execute
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// 4. Scan results
+	var teachers []models.Teacher
+	for rows.Next() {
+		var t models.Teacher
+		if err := rows.Scan(&t.ID, &t.FirstName, &t.LastName, &t.Email, &t.Class, &t.Subject); err != nil {
+			return nil, err
+		}
+		teachers = append(teachers, t)
+	}
+	return teachers, nil
+}
+
+
+// SortServices returns all teachers ordered by the given sortParams.
+// sortParams entries must be in the form "field" or "field:asc" or "field:desc".
+// If any entry is malformed or uses an unsupported field/direction, an error is returned.
+//
+// Example valid sortParams:
+//   []string{"last_name:desc", "id:asc"}
+//   []string{"first_name"}            // defaults to ASC
+func SortServices(db *sql.DB, sortParams []string) ([]models.Teacher, error) {
+    // 1) Base SELECT
+    query := `
+        SELECT
+            id,
+            first_name,
+            last_name,
+            email,
+            class,
+            subject
+        FROM teachers
+    `
+
+    // 2) Whitelist of allowed fields
+    allowed := map[string]bool{
+        "id":          true,
+        "first_name":  true,
+        "last_name":   true,
+        "email":       true,
+        "class":       true,
+        "subject":     true,
+    }
+
+    // 3) Build ORDER BY clauses
+    var orders []string
+    for _, p := range sortParams {
+        // split into field and optional direction
+        parts := strings.SplitN(p, ":", 2)
+        field := strings.TrimSpace(parts[0])
+        if field == "" {
+            return nil, fmt.Errorf("invalid sort parameter: %q", p)
+        }
+        if !allowed[field] {
+            return nil, fmt.Errorf("unsupported sort field: %q", field)
+        }
+
+        // determine direction
+        dir := "ASC"
+        if len(parts) == 2 {
+            switch strings.ToUpper(strings.TrimSpace(parts[1])) {
+            case "ASC", "":
+                dir = "ASC"
+            case "DESC":
+                dir = "DESC"
+            default:
+                return nil, fmt.Errorf("invalid sort direction %q in parameter %q", parts[1], p)
+            }
+        }
+
+        orders = append(orders, fmt.Sprintf("%s %s", field, dir))
+    }
+
+    // 4) Append ORDER BY if any
+    if len(orders) > 0 {
+        query += " ORDER BY " + strings.Join(orders, ", ")
+    }
+
+    // 5) Execute query
+    rows, err := db.Query(query)
+    if err != nil {
+        return nil, fmt.Errorf("query error: %w", err)
+    }
+    defer rows.Close()
+
+    // 6) Scan results
+    var teachers []models.Teacher
+    for rows.Next() {
+        var t models.Teacher
+        if err := rows.Scan(
+            &t.ID,
+            &t.FirstName,
+            &t.LastName,
+            &t.Email,
+            &t.Class,
+            &t.Subject,
+        ); err != nil {
+            return nil, fmt.Errorf("scan error: %w", err)
+        }
+        teachers = append(teachers, t)
+    }
+    // check for errors from iterating over rows
+    if err := rows.Err(); err != nil {
+        return nil, fmt.Errorf("rows iteration error: %w", err)
+    }
+
+    return teachers, nil
 }
