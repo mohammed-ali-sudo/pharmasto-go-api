@@ -3,14 +3,41 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"net/http"
-	"strconv"
-
+	"fmt"
 	"goapi/internal/services"
 	"goapi/models"
+	"goapi/shared"
+	"net/http"
+	"reflect"
+	"strconv"
 
 	"github.com/gorilla/mux"
 )
+
+func Delethandler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "Only DELETE method is allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		idStr := mux.Vars(r)["id"]
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			http.Error(w, "Invalid ID format", http.StatusBadRequest)
+			return
+		}
+		err2 := services.Delet(db, id)
+		fmt.Println("", err2)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "ok",
+			"id":     id,
+		})
+	}
+}
 
 func TeacherCreateHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -22,6 +49,16 @@ func TeacherCreateHandler(db *sql.DB) http.HandlerFunc {
 		var t models.Teacher
 		if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
 			http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+			return
+		}
+
+		if msg, ok := models.CreateTeacherValidator(t); !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "error",
+				"error":  msg, // single error message
+			})
 			return
 		}
 
@@ -53,7 +90,7 @@ func TeacherGetHandler(db *sql.DB) http.HandlerFunc {
 		// ✅ Call service to get teacher
 		teacher, err := services.GetTeacherByID(db, id)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			shared.SendError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
@@ -80,7 +117,7 @@ func TeachersGetHandler(db *sql.DB) http.HandlerFunc {
 		// Call the service
 		teachers, err := services.GetTeachers(db, req.IDs)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			shared.SendError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
@@ -174,105 +211,167 @@ func Filter(db *sql.DB, next http.Handler) http.Handler {
 // If present, it runs services.SortServices and writes the JSON response.
 // Otherwise it calls next.ServeHTTP.
 func Sort(db *sql.DB, next http.Handler) http.Handler {
-    type resp struct {
-        Data []models.Teacher `json:"data"`
-    }
+	type resp struct {
+		Data []models.Teacher `json:"data"`
+	}
 
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("Content-Type", "application/json")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 
-        sortParams := r.URL.Query()["sortby"]
-        if len(sortParams) > 0 {
-            // Call your SortServices
-            teachers, err := services.SortServices(db, sortParams)
-            if err != nil {
-                // Bad sort param or DB error
-                http.Error(w, err.Error(), http.StatusBadRequest)
-                return
-            }
-            if teachers == nil {
-                teachers = []models.Teacher{}
-            }
-            json.NewEncoder(w).Encode(resp{Data: teachers})
-            return
-        }
+		sortParams := r.URL.Query()["sortby"]
+		if len(sortParams) > 0 {
+			// Call your SortServices
+			teachers, err := services.SortServices(db, sortParams)
+			if err != nil {
+				// Bad sort param or DB error
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if teachers == nil {
+				teachers = []models.Teacher{}
+			}
+			json.NewEncoder(w).Encode(resp{Data: teachers})
+			return
+		}
 
-        // No sort param → pass through
-        next.ServeHTTP(w, r)
-    })
+		// No sort param → pass through
+		next.ServeHTTP(w, r)
+	})
 }
-
 
 func TeacherUpdateHandler(db *sql.DB) http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
-        // Only allow PUT
-        if r.Method != http.MethodPut {
-            http.Error(w, "Only PUT method is allowed", http.StatusMethodNotAllowed)
-            return
-        }
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Only allow PUT
+		if r.Method != http.MethodPut {
+			http.Error(w, "Only PUT method is allowed", http.StatusMethodNotAllowed)
+			return
+		}
 
-        // 1) Extract path variable
-        vars := mux.Vars(r)
-        idStr := vars["id"]
+		// 1) Extract path variable
+		vars := mux.Vars(r)
+		idStr := vars["id"]
 
-        // 2) Validate and convert ID to int
-        id, err := strconv.Atoi(idStr)
-        if err != nil {
-            http.Error(w, "Invalid ID format", http.StatusBadRequest)
-            return
-        }
+		// 2) Validate and convert ID to int
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			http.Error(w, "Invalid ID format", http.StatusBadRequest)
+			return
+		}
 
-        // 3) Decode request body into a Teacher struct
-        var input models.Teacher
-        if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-            http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
-            return
-        }
+		// 3) Decode request body into a Teacher struct
+		var input models.Teacher
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+			return
+		}
 
-        // 4) Call service to update and return the updated teacher
-        updated, err := services.UpdateTeacherService(db, input, id)
-        if err != nil {
-            http.Error(w, "Update failed: "+err.Error(), http.StatusInternalServerError)
-            return
-        }
+		// 4) Call service to update and return the updated teacher
+		updated, err := services.UpdateTeacherService(db, input, id)
+		if err != nil {
+			http.Error(w, "Update failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 
-        // 5) Return JSON of the updated teacher
-        w.Header().Set("Content-Type", "application/json")
-        json.NewEncoder(w).Encode(updated)
-    }
+		// 5) Return JSON of the updated teacher
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(updated)
+	}
 }
 
-
 func TeacherPatchHandler(db *sql.DB) http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
-        if r.Method != http.MethodPatch {
-            http.Error(w, "Only PATCH method is allowed", http.StatusMethodNotAllowed)
-            return
-        }
-        // Extract and validate ID
-        idStr := mux.Vars(r)["id"]
-        id, err := strconv.Atoi(idStr)
-        if err != nil {
-            http.Error(w, "Invalid ID format", http.StatusBadRequest)
-            return
-        }
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			http.Error(w, "Only PATCH method is allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		// Extract and validate ID
+		idStr := mux.Vars(r)["id"]
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			http.Error(w, "Invalid ID format", http.StatusBadRequest)
+			return
+		}
 
-        // Decode incoming JSON into models.Teacher
-        var input models.Teacher
-        if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-            http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
-            return
-        }
+		userData, err := services.GetTeacherByID(db, id)
 
-        // Call service to patch and get updated record
-        updated, err := services.PatchTeacherService(db, input, id)
-        if err != nil {
-            http.Error(w, "Patch failed: "+err.Error(), http.StatusInternalServerError)
-            return
-        }
+		fmt.Println("user data", userData)
+		// Decode incoming JSON into models.Teacher
+		var inputTeacherFromBody map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&inputTeacherFromBody); err != nil {
+			http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+			return
+		}
 
-        // Return updated teacher
-        w.Header().Set("Content-Type", "application/json")
-        json.NewEncoder(w).Encode(updated)
-    }
+		teacherValue := reflect.ValueOf(&userData).Elem()
+		fmt.Println("teacher value from userdata", teacherValue.Type().Field(0))
+		fmt.Println("teacher value from userdata", teacherValue.Type().Field(1))
+
+		for k, v := range inputTeacherFromBody {
+			for i := 0; i < teacherValue.NumField(); i++ {
+
+				fmt.Println("key", k)
+				field := teacherValue.Type().Field(i)
+				fmt.Println("", field.Tag.Get("json"))
+				if field.Tag.Get("json") == k+" ,omitempty" {
+					if teacherValue.Field(i).CanSet() {
+						teacherValue.Field(i).Set(reflect.ValueOf(v).Convert(teacherValue.Field(i).Type()))
+					}
+				}
+			}
+		}
+
+		// Call service to patch and get updated record
+		updatedTeacherFromDb, err := services.PatchTeacherService(db, userData, id)
+		if err != nil {
+			http.Error(w, "Patch failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Return updated teacher
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(updatedTeacherFromDb)
+	}
+}
+
+// PatchTeachersHandler handles PATCH requests to update multiple teachers.
+func PatchTeachersHandler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			http.Error(w, "Only PATCH method is allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Decode the JSON request body into a slice of maps.
+		var teachers []map[string]any
+		err := json.NewDecoder(r.Body).Decode(&teachers)
+		if err != nil {
+			http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+			return
+		}
+
+		// Call the service function to perform the updates.
+		err = services.PatchTeachersServices(db, teachers)
+		if err != nil {
+			// Handle different types of errors from the service.
+			if err.Error() == "invalid id format or missing id" {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if err.Error() == "teacher not found" {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			// For all other errors, return an internal server error.
+			http.Error(w, fmt.Sprintf("failed to update teachers: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Respond with a success message.
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "ok",
+			"message": "Teachers updated successfully",
+		})
+	}
 }

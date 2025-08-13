@@ -7,11 +7,11 @@ import (
 	middleware "goapi/shared/middlewares"
 	"log"
 	"net/http"
+
 	"github.com/gorilla/mux"
 )
 
 func main() {
-
 
 	// 1. Open DB
 	connStr := "postgres://postgres:1010204080@database-postgressdb.clgkywaycm2o.eu-north-1.rds.amazonaws.com:5432/pharmasto?sslmode=require"
@@ -27,7 +27,9 @@ func main() {
 	// 3. Route using the simplified handler
 	router.HandleFunc("/teacher", handlers.TeacherCreateHandler(database)).Methods("POST")
 	router.HandleFunc("/teacher/all", handlers.TeachersGetHandler(database)).Methods("POST")
+	router.HandleFunc("/teacher/all", handlers.PatchTeachersHandler(database)).Methods("PATCH")
 	router.HandleFunc("/teacher/filter", handlers.TeachersGetHandlerfilter(database)).Methods("POST", "GET")
+	router.HandleFunc("/teacher/{id}", handlers.Delethandler(database)).Methods("DELETE")
 	router.HandleFunc("/teacher/{id}", handlers.TeacherGetHandler(database)).Methods("GET")
 	router.HandleFunc("/teacher/{id}", handlers.TeacherUpdateHandler(database)).Methods("PUT")
 	router.HandleFunc("/teacher/{id}", handlers.TeacherPatchHandler(database)).Methods("PATCH")
