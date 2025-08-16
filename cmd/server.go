@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"goapi/internal/handlers"
+	"goapi/router" // package containing TeacherRouter
 	"goapi/shared/db"
 	middleware "goapi/shared/middlewares"
 	"log"
@@ -11,31 +11,26 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func main() {
 
-	// 1. Open DB
+
+func main() {
+	// Open DB
 	connStr := "postgres://postgres:1010204080@database-postgressdb.clgkywaycm2o.eu-north-1.rds.amazonaws.com:5432/pharmasto?sslmode=require"
 	database := db.Open(connStr)
 	defer database.Close()
 
-	// 2. Router + middleware
-	router := mux.NewRouter()
-	router.Use(middleware.CORS)
-	router.Use(middleware.ResponseTimeMw)
-	router.Use(middleware.SecurityHeader)
+	// Router + middleware
+	mainRouter := mux.NewRouter() // <- renamed from "router"
+	mainRouter.Use(middleware.CORS)
+	mainRouter.Use(middleware.ResponseTimeMw)
+	mainRouter.Use(middleware.SecurityHeader)
 
-	// 3. Route using the simplified handler
-	router.HandleFunc("/teacher", handlers.TeacherCreateHandler(database)).Methods("POST")
-	router.HandleFunc("/teacher/all", handlers.TeachersGetHandler(database)).Methods("POST")
-	router.HandleFunc("/teacher/all", handlers.PatchTeachersHandler(database)).Methods("PATCH")
-	router.HandleFunc("/teacher/filter", handlers.TeachersGetHandlerfilter(database)).Methods("POST", "GET")
-	router.HandleFunc("/teacher/{id}", handlers.Delethandler(database)).Methods("DELETE")
-	router.HandleFunc("/teacher/{id}", handlers.TeacherGetHandler(database)).Methods("GET")
-	router.HandleFunc("/teacher/{id}", handlers.TeacherUpdateHandler(database)).Methods("PUT")
-	router.HandleFunc("/teacher/{id}", handlers.TeacherPatchHandler(database)).Methods("PATCH")
+	// Mount TeacherRouter under /teacher
+	mainRouter.PathPrefix("/teacher").Handler(
+		http.StripPrefix("/teacher", router.TeacherRouter(database)), // <- now this works
+	)
 
-	// 4. Start server
 	fmt.Println("🚀 Server listening on :8001")
-	log.Fatal(http.ListenAndServe(":8001", router))
+	log.Fatal(http.ListenAndServe(":8001", mainRouter))
 
 }

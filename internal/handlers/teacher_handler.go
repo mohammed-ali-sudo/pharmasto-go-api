@@ -47,11 +47,12 @@ func TeacherCreateHandler(db *sql.DB) http.HandlerFunc {
 		}
 
 		var t models.Teacher
-		if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
-			http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&t); err != nil {
+			http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-
 		if msg, ok := models.CreateTeacherValidator(t); !ok {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)

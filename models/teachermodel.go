@@ -15,6 +15,13 @@ type Teacher struct {
 	Subject   string `json:"subject,omitempty"    validate:"omitempty,alpha"`
 }
 
+
+
+func CreateTeacherValidator(t Teacher) (string, bool) {
+	err := validate.Struct(t)
+	return FirstError(err)
+}
+
 var validate = validator.New()
 
 func FirstError(err error) (string, bool) {
@@ -53,9 +60,4 @@ func FirstError(err error) (string, bool) {
 	default:
 		return fmt.Sprintf("%s is invalid", fe.Field()), false
 	}
-}
-
-func CreateTeacherValidator(t Teacher) (string, bool) {
-	err := validate.Struct(t)
-	return FirstError(err)
 }
