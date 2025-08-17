@@ -11,8 +11,6 @@ import (
 	"github.com/gorilla/mux"
 )
 
-
-
 func main() {
 	// Open DB
 	connStr := "postgres://postgres:1010204080@database-postgressdb.clgkywaycm2o.eu-north-1.rds.amazonaws.com:5432/pharmasto?sslmode=require"

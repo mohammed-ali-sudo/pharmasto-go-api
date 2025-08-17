@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"goapi/internal/services"
@@ -41,13 +42,22 @@ func SignInHandler(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		ok, err := services.SignIn(db, creds.Username, creds.Password)
+		ok, err, token := services.SignIn(db, creds.Username, creds.Password)
 		if err != nil || !ok {
 			http.Error(w, "invalid username or password", http.StatusUnauthorized)
 			return
 		}
 
+		// 1. Set the Authorization header with the JWT.
+		w.Header().Set("Authorization", "Bearer "+token)
+
+		// 2. Set the Content-Type header.
+		w.Header().Set("Content-Type", "application/json")
+
+		// 3. Write the HTTP status code and send all set headers.
 		w.WriteHeader(http.StatusOK)
+
+		fmt.Println("", token)
 		json.NewEncoder(w).Encode(map[string]string{"message": "signin successful"})
 	}
 }
